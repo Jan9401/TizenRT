@@ -373,7 +373,11 @@ static int compress_full_bufs(void)
 		mq_send(mq_fd, (const char *)&msg_compress, sizeof(int), 100);
 
 		/* wait for completion of the current full block compression */
-		while (compress_full_block) ;
+		while (compress_full_block) {
+			if (sched_lockcount()) {
+				usleep(10000);
+			}
+		}
 
 		if (compress_ret < 0) {
 			lldbg("Fail to compress ret = %d\n", compress_ret);
@@ -453,7 +457,7 @@ int log_dump_save(char ch)
 			 * priority, then there will be a lockup since both threads cannot proceed. 
 			 * So, in this case, we will return without performing the compression.
 			 */
-			if (sched_self()->sched_priority > CONFIG_LOG_DUMP_PRIO) {
+			if (sched_self()->sched_priority > CONFIG_LOG_DUMP_PRIO || sched_lockcount()) {
 				return LOG_DUMP_FAIL;
 			}
 

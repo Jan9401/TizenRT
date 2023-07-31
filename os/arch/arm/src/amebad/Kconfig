@@ -101,7 +101,7 @@ config AMEBAD_I2CTIMEOTICKS
 	depends on !AMEBAD_I2C_DYNTIMEO
 
 config RTL8721D_SPI
-	bool "RTL8721D_SPI
+	bool "RTL8721D_SPI"
 	default n
 
 config SPI1_MASTER
@@ -192,5 +192,13 @@ config AMEBAD_RDP_KEY
 	default 0x2473040ab47c48655a15aa431c4bbb8a
 	range 00000000000000000000000000000000 ffffffffffffffffffffffffffffffff
 	depends on AMEBAD_RDP
+
+endmenu
+
+menu "Realtek RTL8721D CMSIS_NN Support"
+
+config AMEBAD_CMSIS_NN
+	bool "Enable Amebad CMSIS_NN"
+	default n
 
 endmenu

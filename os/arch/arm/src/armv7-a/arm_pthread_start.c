@@ -70,7 +70,6 @@
  *   pthread actually starts.  See libc/pthread/pthread_create.c
  *
  * Input Parameters:
- *   startup - The user-space pthread startup function
  *   entrypt - The user-space address of the pthread entry point
  *   arg     - Standard argument for the pthread entry point
  *
@@ -81,12 +80,11 @@
  *
  ****************************************************************************/
 
-void up_pthread_start(pthread_trampoline_t startup,
-                      pthread_startroutine_t entrypt, pthread_addr_t arg)
+void up_pthread_start(pthread_startroutine_t entrypt, pthread_addr_t arg)
 {
   /* Let sys_call3() do all of the work */
 
-  sys_call3(SYS_pthread_start, (uintptr_t)startup, (uintptr_t)entrypt,
+  sys_call2(SYS_pthread_start, (uintptr_t)entrypt,
             (uintptr_t)arg);
 
   PANIC();
