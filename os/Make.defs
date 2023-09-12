@@ -16,9 +16,8 @@
 #
 ###########################################################################
 ############################################################################
-# build/configs/Make.defs
 #
-#   Copyright (C) 2018 Gregory Nutt. All rights reserved.
+#   Copyright (C) 2020 Gregory Nutt. All rights reserved.
 #   Author: Gregory Nutt <gnutt@nuttx.org>
 #
 # Redistribution and use in source and binary forms, with or without
@@ -52,18 +51,25 @@
 
 include ${TOPDIR}/.config
 include ${TOPDIR}/tools/Config.mk
-include ${TOPDIR}/arch/arm/src/armv7-m/Toolchain.defs
+ARCH_FAMILY = $(patsubst "%",%,$(CONFIG_ARCH_FAMILY))
+include ${TOPDIR}/arch/$(CONFIG_ARCH)/src/$(ARCH_FAMILY)/Toolchain.defs
 
-ifeq ($(CONFIG_ARMV7M_DTCM),y)
-  KSPACE_LDSCRIPT = flash-dtcm.ld
+ifeq ($(CONFIG_AMEBAD_TRUSTZONE),y)
+LDSCRIPT = rlx8721d_img2_ns.ld
 else
-  KSPACE_LDSCRIPT = flash-ocram.ld
+LDSCRIPT = rlx8721d_img2_is.ld
 endif
 
 ifeq ($(CONFIG_LIBCXX_HAVE_LIBSUPCXX),y)
+ifeq ($(CONFIG_LIBCXX_EXCEPTION),y)
 LIBSUPXX = ${shell $(CC) $(CXXFLAGS) --print-file-name=libsupc++.a}
 EXTRA_LIBPATHS += -L "${shell dirname "$(LIBSUPXX)"}"
 EXTRA_LIBS += -lsupc++
+else
+LIBSUPXX = ${shell $(CC) $(CXXFLAGS) --print-file-name=libsupc++_nano.a}
+EXTRA_LIBPATHS += -L "${shell dirname "$(LIBSUPXX)"}"
+EXTRA_LIBS += -lsupc++_nano
+endif
 endif
 
 ifeq ($(WINTOOL),y)
@@ -72,33 +78,48 @@ ifeq ($(WINTOOL),y)
   DIRUNLINK = $(TOPDIR)/tools/unlink.sh
   MKDEP = $(TOPDIR)/tools/mkwindeps.sh
   ARCHINCLUDES = -I. -isystem "${shell cygpath -w $(TOPDIR)/include}" -isystem "${shell cygpath -w $(TOPDIR)/../framework/include}" -isystem "${shell cygpath -w $(TOPDIR)/../external/include}"
-  ARCHINCLUDES += -isystem "${shell cygpath -w $(TOPDIR)/net/lwip/src/include}"
-  ARCHXXINCLUDES = -I. -isystem "${shell cygpath -w $(TOPDIR)/include}" -isystem "${shell cygpath -w $(TOPDIR)/include/cxx}" -isystem "${shell cygpath -w $(TOPDIR)/../framework/include}" -isystem "${shell cygpath -w $(TOPDIR)/../external/include}"
-  ARCHXXINCLUDES += -isystem "${shell cygpath -w $(TOPDIR)/net/lwip/src/include}" -isystem "${shell cygpath -w $(TOPDIR)/../external/include/libcxx}"
-  ARCHSCRIPT = -T "${shell cygpath -w $(TOPDIR)/../build/configs/$(CONFIG_ARCH_BOARD)/scripts/$(KSPACE_LDSCRIPT)}"
+  ARCHXXINCLUDES = -I. -isystem "${shell cygpath -w $(TOPDIR)/include}" -isystem "${shell cygpath -w $(TOPDIR)/../external/include}"
+  ARCHSCRIPT = -T "${shell cygpath -w $(TOPDIR)/../build/configs/$(CONFIG_ARCH_BOARD)/scripts/$(LDSCRIPT)}"
 else
   # Linux/Cygwin-native toolchain
   MKDEP = $(TOPDIR)/tools/mkdeps$(HOSTEXEEXT)
   ARCHINCLUDES = -I. -isystem $(TOPDIR)/include -isystem $(TOPDIR)/../framework/include -isystem $(TOPDIR)/../external/include
   ARCHINCLUDES += -isystem $(TOPDIR)/net/lwip/src/include
-  ARCHXXINCLUDES = -I. -isystem $(TOPDIR)/include -isystem $(TOPDIR)/include/cxx -isystem $(TOPDIR)/../external/include -isystem $(TOPDIR)/../framework/include -isystem $(TOPDIR)/../external/include/libcxx
-  ARCHXXINCLUDES += -isystem $(TOPDIR)/net/lwip/src/include
-  ARCHSCRIPT = -L$(TOPDIR)/../build/configs/$(CONFIG_ARCH_BOARD)/scripts
-  ARCHSCRIPT += -T$(KSPACE_LDSCRIPT)
+  ARCHXXINCLUDES = -I. -isystem $(TOPDIR)/include -isystem $(TOPDIR)/../external/include -isystem $(TOPDIR)/../external/include/libcxx
+  ARCHXXINCLUDES += -isystem $(TOPDIR)/net/lwip/src/include -isystem $(TOPDIR)/../framework/include
+  ARCHSCRIPT = -T$(TOPDIR)/../build/configs/$(CONFIG_ARCH_BOARD)/scripts/$(LDSCRIPT)
 endif
 
 CC = $(CROSSDEV)gcc
 CXX = $(CROSSDEV)g++
 CPP = $(CROSSDEV)gcc -E
 LD = $(CROSSDEV)ld
+AS = $(CROSSDEV)as
 AR = $(CROSSDEV)ar rcs
 NM = $(CROSSDEV)nm
 OBJCOPY = $(CROSSDEV)objcopy
 OBJDUMP = $(CROSSDEV)objdump
-STRIP = $(CROSSDEV)strip
-ifeq ($(CONFIG_BUILD_PROTECTED),y)
-STRIP += --strip-unneeded
-endif
+LD_ROM = $(CROSSDEV)ld
+CC_SIZE = $(CROSSDEV)size
+FROMELF = $(CROSSDEV)objcopy
+STRIP   = $(CROSSDEV)strip
+NM	= $(ARCROSSDEV)nm
+
+GDB = arm-none-eabi-gdb
+GDBR = arm-none-eabi-gdb
+READELF = arm-none-eabi-readelf
+
+REMOVE    = -rm -f
+REMOVEDIR = rm -rf
+MKDIR     = mkdir
+MAKE      = make
+CD        = cd
+COPY      = cp
+MOVE      = mv
+
+PREPENDTOOL		= $(COMPILATION_FILE_FOLDER)/prepend_header.sh
+CODE_ANALYZE_PYTHON=$(COMPILATION_FILE_FOLDER)/code_analyze.py
+
 ARCHCCVERSION = ${shell $(CC) -v 2>&1 | sed -n '/^gcc version/p' | sed -e 's/^gcc version \([0-9\.]\)/\1/g' -e 's/[-\ ].*//g' -e '1q'}
 ARCHCCMAJOR = ${shell echo $(ARCHCCVERSION) | cut -d'.' -f1}
 ARCHCCMINOR = ${shell echo $(ARCHCCVERSION) | cut -d'.' -f2}
@@ -106,27 +127,29 @@ ARCHCCMINOR = ${shell echo $(ARCHCCVERSION) | cut -d'.' -f2}
 ifeq ($(CONFIG_DEBUG_SYMBOLS),y)
   ARCHOPTIMIZATION = -g
 endif
-ifneq ($(CONFIG_DEBUG_NOOPT),y)
-  ARCHOPTIMIZATION += $(MAXOPTIMIZATION)
-endif
 
-ifeq ($(CONFIC_BUILD_PROTECTED),y)
 ifneq ($(CONFIG_DEBUG_NOOPT),y)
-  ARCHOPTIMIZATION += -fno-strict-aliasing -fno-strength-reduce -fomit-frame-pointer
+  ARCHOPTIMIZATION += $(MAXOPTIMIZATION) -fno-strict-aliasing -fno-strength-reduce -fomit-frame-pointer
 endif
 
 ifeq ($(CONFIG_FRAME_POINTER),y)
-  ARCHOPTIMIZATION += -fno-omit-frame-pointer -mapcs -mno-sched-prolog
-endif
+  ARCHOPTIMIZATION += -fomit-frame-pointer -mapcs -mno-sched-prolog
 endif
 
-ARCHCFLAGS = -fno-builtin -mcpu=cortex-m7 -fno-common $(ARCHCPUFLAGS)
-ARCHCXXFLAGS = -fno-builtin -mcpu=cortex-m7 $(ARCHCPUFLAGS)
+ARCHCFLAGS = -fno-builtin -mcpu=cortex-m33 -mfpu=fpv5-sp-d16
+
 ifeq ($(CONFIG_APP_BINARY_SEPARATION),y)
-ARCHCXXFLAGS += -fexceptions 
+  ARCHCFLAGS += -fno-common
 endif
-ARCHWARNINGS = -Wall -Wstrict-prototypes -Wshadow -Wundef -fno-strict-aliasing -Wno-implicit-function-declaration -Wno-unused-function -Wno-unused-but-set-variable
-ARCHWARNINGSXX = -Wall -Wshadow -Wundef 
+
+ARCHCXXFLAGS = -fno-builtin -mcpu=cortex-m33 -mfpu=fpv5-sp-d16
+
+ifeq ($(CONFIG_HAVE_CXX),y)
+  ARCHCXXFLAGS = -fno-builtin $(ARCHCPUFLAGS)
+endif
+
+ARCHWARNINGS = -Wall -Wstrict-prototypes -Wshadow -Wundef -Wno-implicit-function-declaration -Wno-unused-function -Wno-unused-but-set-variable
+ARCHWARNINGSXX = -Wall -Wshadow -Wundef
 # only version 4.9 supports color diagnostics
 ifeq "$(ARCHMAJOR)" "4"
 ifeq "$(ARCHMINOR)" "9"
@@ -136,20 +159,15 @@ endif
 endif
 
 ARCHDEFINES =
-ifeq ($(CONFIG_ARM_UNWIND),y)
-  ARCHDEFINES = -fasynchronous-unwind-tables -mno-sched-prolog
-endif
 ARCHPICFLAGS = -fpic -msingle-pic-base -mpic-register=r10
 
-CFLAGS = $(ARCHCFLAGS) $(ARCHWARNINGS) $(ARCHOPTIMIZATION) $(ARCHINCLUDES) $(EXTRADEFINES) -pipe 
-CFLAGS += -ffunction-sections -fdata-sections $(ARCHDEFINES)
-CFLAGS += $(ARCHCPUFLAGS)
+CFLAGS = $(ARCHCFLAGS) $(ARCHWARNINGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRADEFINES) -pipe -ffunction-sections -fdata-sections
 CPICFLAGS = $(ARCHPICFLAGS) $(CFLAGS)
-CXXFLAGS = $(ARCHCXXFLAGS) $(ARCHWARNINGSXX) $(ARCHOPTIMIZATION) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRADEFINES) -pipe
+CXXFLAGS = $(ARCHCXXFLAGS) $(ARCHWARNINGSXX) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRADEFINES) -pipe
 
-ifeq ($(CONFIG_LIBCXX),y)
-CXXFLAGS = $(ARCHCPUFLAGS) -fcheck-new -fno-exceptions -fno-rtti
-CXXFLAGS += -DCLOCK_MONOTONIC -D__TINYARA__
+ifeq ($(CONFIG_HAVE_CXX),y)
+  CXXFLAGS += -DCLOCK_MONOTONIC -D__TINYARA__
+  CXXFLAGS += -fcheck-new -frtti
 ifeq ($(CONFIG_CXX_VERSION_17),y)
   CXXFLAGS += -std=c++17
 else ifeq ($(CONFIG_CXX_VERSION_14),y)
@@ -157,14 +175,76 @@ else ifeq ($(CONFIG_CXX_VERSION_14),y)
 else
   CXXFLAGS += -std=c++11
 endif
-CXXFLAGS += -pedantic -D_DEBUG -D_LIBCPP_BUILD_STATIC -ffunction-sections -fdata-sections
-CXXFLAGS += -DCONFIG_WCHAR_BUILTIN 
+  CXXFLAGS += -pedantic -D_DEBUG -D_LIBCPP_BUILD_STATIC -ffunction-sections -fdata-sections -D__GLIBCXX__
+endif
+
+ifeq ($(CONFIG_EXTERNAL_TFMICRO),y)
+CXXFLAGS += -DTF_LITE_STATIC_MEMORY -DNDEBUG -g
+CFLAGS   += -DTF_LITE_STATIC_MEMORY -DNDEBUG -g
+CXXFLAGS += -I$(TOPDIR)/../external/tfmicro
+CXXFLAGS += -I$(TOPDIR)/../external/tfmicro/third_party
+CXXFLAGS += -I$(TOPDIR)/../external/tfmicro/third_party/gemmlowp
+endif
+
+ifeq ($(CONFIG_LIBCXX_EXCEPTION),y)
+  CXXFLAGS += -fexceptions
+else
+  CXXFLAGS += -fno-exceptions
 endif
 
 CXXPICFLAGS = $(ARCHPICFLAGS) $(CXXFLAGS)
 CPPFLAGS = $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRADEFINES)
 AFLAGS = $(CFLAGS) -D__ASSEMBLY__
 
+##########################################################################################################################################
+CFLAGS += -march=armv8-m.main+dsp
+CFLAGS += -mthumb
+CFLAGS += -mcmse
+#CFLAGS += -mfloat-abi=hard
+#CFLAGS += -mfpu=fpv5-sp-d16
+
+
+#CFLAGS += -g
+#CFLAGS += -gdwarf-3
+#CFLAGS += -nodefaultlibs
+#CFLAGS += -O2
+#CFLAGS += -D__FPU_PRESENT
+
+#CFLAGS += -fstack-usage
+#CFLAGS += -fdata-sections
+#CFLAGS += -nostartfiles
+#CFLAGS += -nostdlib
+#CFLAGS += -Wpointer-arith
+#CFLAGS += -Wno-write-strings
+#CFLAGS += -Wno-maybe-uninitialized
+#CFLAGS += --save-temps
+#CFLAGS += -c
+#CFLAGS += -MMD
+
+#CFLAGS += -Wextra
+
+#CFLAGS += $(IFLAGS)
+CFLAGS += -DCONFIG_PLATFORM_8721D
+CFLAGS += -DCONFIG_USE_MBEDTLS_ROM_ALG
+CFLAGS += -DDM_ODM_SUPPORT_TYPE=32
+CFLAGS += -DSTD_PRINTF
+CFLAGS += -DCONFIG_PLATFORM_TIZENRT_OS=1
+CFLAGS += -DARM_CORE_CM4
+
+#LDFLAGS += --wrap=printf
+
+##########################################################################################################################################
+
+ASMEXT = .S
+OBJEXT = .o
+LIBEXT = .a
+EXEEXT = .axf
+
+ifeq ($(CONFIG_DEBUG_SYMBOLS),y)
+  LDFLAGS += -g
+endif
+
+ifeq ($(CONFIG_APP_BINARY_SEPARATION),y)
 # ELF module definitions
 
 CELFFLAGS = $(CFLAGS) -mlong-calls # --target1-abs
@@ -177,16 +257,6 @@ ifeq ($(WINTOOL),y)
 else
 	LDELFFLAGS += -T $(TOPDIR)/userspace/userspace_apps.ld
 endif
-
-ASMEXT = .S
-OBJEXT = .o
-LIBEXT = .a
-EXEEXT =
-
-CFLAGS += -nostartfiles -nodefaultlibs
-CXXFLAGS += -nostartfiles -nodefaultlibs
-ifeq ($(CONFIG_DEBUG_SYMBOLS),y)
-  LDFLAGS += -g
 endif
 
 LDFLAGS += --gc-sections
@@ -196,6 +266,24 @@ HOSTCC = gcc
 HOSTINCLUDES = -I.
 HOSTCFLAGS = -Wall -Wstrict-prototypes -Wshadow -Wundef -g -pipe
 HOSTLDFLAGS =
+
+define MAKE_BOARD_SPECIFIC_BIN
+  $(TOPDIR)/../build/configs/rtl8721csm/rtl8721csm_make_bin.sh
+endef
+
+SECURE_HEADER_SIZE=32
+
+define MAKE_SAMSUNG_HEADER
+  $(TOPDIR)/../os/tools/mksamsungheader.py $(1) kernel ${SECURE_HEADER_SIZE}
+endef
+
+define MAKE_BOOTPARAM
+  $(TOPDIR)/../os/tools/mkbootparam.py
+endef
+
+define MAKE_USER_SIGNING
+  $(TOPDIR)/../build/configs/rtl8721csm/rtl8721csm_signing.sh user
+endef
 
 define DOWNLOAD
   $(TOPDIR)/../build/configs/common_download.sh $(1) $(2) $(3) $(4) $(5) $(6)
