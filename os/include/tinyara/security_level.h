@@ -18,7 +18,7 @@
 
 #ifndef __INCLUDE_SECURITY_LEVEL_H
 #define __INCLUDE_SECURITY_LEVEL_H
-
+#ifdef CONFIG_SECURITY_LEVEL
 /****************************************************************************
  * Included Files
  ****************************************************************************/
@@ -34,8 +34,9 @@
  ********************************************************************************/
 enum security_level_result_e {
 	SECURITY_LEVEL_OK,
-	SECURITY_LEVEL_FAIL_READ,
-	SECURITY_LEVEL_INVALID_VALUE
+	SECURITY_LEVEL_READ_FAILED,
+	SECURITY_LEVEL_INVALID_VALUE,
+	SECURITY_LEVEL_ALLOC_FAILED
 };
 
 typedef enum security_level_result_e security_level_result_t;
@@ -73,5 +74,17 @@ int set_security_level(void);
  *      0 : Low level of security. You can see all secure information.
  ****************************************************************************/
 int get_security_level(void);
+
+/****************************************************************************
+ * Name: CHECK_SECURE_PERMISSION
+ *
+ * Description:
+ *   This function returns whether security level is LOW_SECURITY_LEVEL,
+ *   or if CONFIG_SECURITY_LEVEL is disabled, returns true.
+ ****************************************************************************/
+#define CHECK_SECURE_PERMISSION() (get_security_level() == LOW_SECURITY_LEVEL)
+#else
+#define CHECK_SECURE_PERMISSION() (1)
+#endif
 
 #endif

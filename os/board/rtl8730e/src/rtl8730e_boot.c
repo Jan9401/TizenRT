@@ -88,7 +88,7 @@
  ************************************************************************************/
 extern FAR struct gpio_lowerhalf_s *amebasmart_gpio_lowerhalf(u32 pinname, u32 pinmode, u32 pinpull);
 #ifdef CONFIG_PRODCONFIG
-extern u32 EFUSERead8(u32 CtrlSetting, u32 Addr, u8 *Data, u8 L25OutVoltage);
+extern u32 OTP_Read8(u32 Addr, u8 *Data);
 #endif
 #if defined(CONFIG_AUDIO_I2SCHAR) && defined(CONFIG_AMEBASMART_I2S)
 extern int i2schar_devinit(void);
@@ -105,7 +105,7 @@ extern int i2schar_devinit(void);
 static int up_check_prod(void)
 {
 	u8 prod_disable;
-	EFUSERead8(0, EFUSE_SEC_CONFIG_ADDR1, &prod_disable, L25EOUTVOLTAGE);
+	OTP_Read8(SEC_CFG1, &prod_disable);
 	if (prod_disable == 0xff) {
 		return OK;
 	}
@@ -272,15 +272,6 @@ void amebasmart_mount_partitions(void)
 #endif /* CONFIG_FLASH_PARTITION */
 }
 
-#ifdef CONFIG_FTL_ENABLED
-extern const u8 ftl_phy_page_num;
-extern const u32 ftl_phy_page_start_addr;
-static void app_ftl_init(void)
-{
-	ftl_init(ftl_phy_page_start_addr, ftl_phy_page_num);
-}
-#endif
-
 void amebasmart_memory_initialize(void)
 {
 
@@ -352,9 +343,6 @@ void board_initialize(void)
 			lldbg("Failed to register the RTC driver: %d\n", ret);
 		}
 	}
-#endif
-#ifdef CONFIG_FTL_ENABLED
-	app_ftl_init();
 #endif
 #ifdef CONFIG_AMEBASMART_WIFI
 	wlan_initialize();

@@ -62,21 +62,12 @@
 #include <tinyara/arch.h>
 #include <tinyara/kmalloc.h>
 #include <tinyara/mm/mm.h>
-#ifdef CONFIG_ARM_MPU
-#include <tinyara/mpu.h>
-#endif
 #include "libelf.h"
+#include "binfmt_arch_apis.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-#ifndef CONFIG_HEAP_INDEX_LOADED_APP
-#define CONFIG_HEAP_INDEX_LOADED_APP 0
-#endif
-
-#if CONFIG_HEAP_INDEX_LOADED_APP >= CONFIG_KMM_NHEAPS
-#error "Heap index for loading apps must be less than total number of heaps"
-#endif
 
 /****************************************************************************
  * Private Constant Data
@@ -88,8 +79,8 @@
 #ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
 static int allocateregions(FAR struct elf_loadinfo_s *loadinfo)
 {
-	size_t sizes[MPU_NUM_REGIONS] = {loadinfo->binp->sizes[BIN_TEXT], loadinfo->binp->sizes[BIN_RO], loadinfo->binp->ramsize};
-	uintptr_t *allocs[MPU_NUM_REGIONS] = {&loadinfo->binp->sections[BIN_TEXT], &loadinfo->binp->sections[BIN_RO], &loadinfo->binp->sections[BIN_DATA]};
+	size_t sizes[NUM_APP_REGIONS] = {loadinfo->binp->sizes[BIN_TEXT], loadinfo->binp->sizes[BIN_RO], loadinfo->binp->ramsize};
+	uintptr_t *allocs[NUM_APP_REGIONS] = {&loadinfo->binp->sections[BIN_TEXT], &loadinfo->binp->sections[BIN_RO], &loadinfo->binp->sections[BIN_DATA]};
 	int count = 0;
 	int i;
 	for (i = 0; i < CONFIG_KMM_REGIONS; i++) {
@@ -102,18 +93,14 @@ static int allocateregions(FAR struct elf_loadinfo_s *loadinfo)
 		ASSERT(0);
 	}
 
-#ifdef CONFIG_BINFMT_SECTION_UNIFIED_MEMORY
-	/* If there are size and address alignment restrictions like ARMV7M,
-	 * it is better to allocate one big memory chunk enough to contain each loading sections like text, ro, data.
-	 */
-
+#if defined(CONFIG_BINFMT_SECTION_UNIFIED_MEMORY)
 	uint32_t totalsize = sizes[0] + sizes[1] + sizes[2];
 	size_t tmpsz;
 	uintptr_t *tmpalloc;
 	uint8_t j;
 
-	for (i = 0; i < MPU_NUM_REGIONS; i++) {
-		for (j = 0; j < MPU_NUM_REGIONS - (i + 1); j++) {
+	for (i = 0; i < NUM_APP_REGIONS; i++) {
+		for (j = 0; j < NUM_APP_REGIONS - (i + 1); j++) {
 			if (sizes[j] < sizes[j + 1]) {
 				tmpsz = sizes[j];
 				sizes[j] = sizes[j + 1];
@@ -126,20 +113,7 @@ static int allocateregions(FAR struct elf_loadinfo_s *loadinfo)
 		}
 	}
 
-#ifdef CONFIG_ARMV7M_MPU
-	/* ARMV7M requires addresses to be aligned to the size of the region.
-	 * In this case, we align the first region to the size of first region.
-	 * Since the regions are arranged in descending order of sizes and each
-	 * region size is a power of two, the remaining regions will also be
-	 * aligned to their size.
-	 */
-	*allocs[0] = (uintptr_t)kmm_memalign_at(CONFIG_HEAP_INDEX_LOADED_APP, sizes[0], totalsize);
-#elif CONFIG_ARMV8M_MPU
-	/* ARMV8M requires addresses to be aligned to the power of two. */
-	*allocs[0] = (uintptr_t)kmm_memalign_at(CONFIG_HEAP_INDEX_LOADED_APP, MPU_ALIGNMENT_BYTES, totalsize);
-#else
-#error "Unknown MPU version. Expected either ARMV7M or ARMV8M"
-#endif
+	*allocs[0] = (uintptr_t)binfmt_arch_allocate_section(totalsize);
 	if (*allocs[0] == (uintptr_t)NULL) {
 		return -ENOMEM;
 	}
@@ -148,18 +122,9 @@ static int allocateregions(FAR struct elf_loadinfo_s *loadinfo)
 	*allocs[2] = *allocs[1] + sizes[1];
 
 #else
-	/* There is no restriction about address alignment in MPU,
-	 * Allocate each loading section respectively.
-	 */
 	int region_idx;
-	for (region_idx = 0; region_idx < MPU_NUM_REGIONS; region_idx++) {
-#ifdef CONFIG_ARMV7M_MPU
-		*allocs[region_idx] = (uintptr_t)kmm_memalign_at(CONFIG_HEAP_INDEX_LOADED_APP, sizes[region_idx], sizes[region_idx]);
-#elif CONFIG_ARMV8M_MPU
-		*allocs[region_idx] = (uintptr_t)kmm_memalign_at(CONFIG_HEAP_INDEX_LOADED_APP, MPU_ALIGNMENT_BYTES, sizes[region_idx]);
-#else
-#error "Unknown MPU version. Expected either ARMV7M or ARMV8M"
-#endif
+	for (region_idx = 0; region_idx < NUM_APP_REGIONS; region_idx++) {
+		*allocs[region_idx] = (uintptr_t)binfmt_arch_allocate_section(sizes[region_idx]);
 		if (*allocs[region_idx] == (uintptr_t)NULL) {
 			return -ENOMEM;
 		}
@@ -172,9 +137,6 @@ static int allocateregions(FAR struct elf_loadinfo_s *loadinfo)
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-#ifdef CONFIG_ARM_MPU
-uint8_t mpu_log2regionceil(uintptr_t base, size_t size);
-#endif
 
 /****************************************************************************
  * Name: elf_addrenv_alloc
@@ -200,14 +162,11 @@ int elf_addrenv_alloc(FAR struct elf_loadinfo_s *loadinfo)
 	uint32_t rosize = loadinfo->binp->sizes[BIN_RO];
 	loadinfo->binp->sizes[BIN_RO] += loadinfo->binp->sizes[BIN_DATA];
 
-#if defined(CONFIG_ARMV7M_MPU) || defined(CONFIG_ARMV8M_MPU)
-	loadinfo->binp->sizes[BIN_TEXT] = MPU_ALIGN_UP(loadinfo->binp->sizes[BIN_TEXT]);
-	loadinfo->binp->sizes[BIN_RO] = MPU_ALIGN_UP(loadinfo->binp->sizes[BIN_RO]);
-	datamemsize = MPU_ALIGN_UP(datamemsize);
+	loadinfo->binp->sizes[BIN_TEXT] = binfmt_arch_align_mem(loadinfo->binp->sizes[BIN_TEXT]);
+	loadinfo->binp->sizes[BIN_RO] = binfmt_arch_align_mem(loadinfo->binp->sizes[BIN_RO]);
+	datamemsize = binfmt_arch_align_mem(datamemsize);
+	
 	loadinfo->binp->ramsize = datamemsize;
-#else
-#error "Unknown MPU version. Expected either ARMV7M or ARMV8M"
-#endif
 
 	if (allocateregions(loadinfo) < 0) {
 		berr("ERROR: failed to allocate memory\n");
@@ -224,14 +183,8 @@ int elf_addrenv_alloc(FAR struct elf_loadinfo_s *loadinfo)
 	}
 
 	/* Allocate the RAM partition to load the app into */
-#if defined(CONFIG_ARMV7M_MPU)
-	loadinfo->binp->ramstart = kmm_memalign_at(CONFIG_HEAP_INDEX_LOADED_APP, loadinfo->binp->ramsize, loadinfo->binp->ramsize);
-#elif defined(CONFIG_ARMV8M_MPU)
-	loadinfo->binp->ramsize = MPU_ALIGN_UP(loadinfo->binp->ramsize);
-	loadinfo->binp->ramstart = (uint32_t)kmm_memalign_at(CONFIG_HEAP_INDEX_LOADED_APP, MPU_ALIGNMENT_BYTES, loadinfo->binp->ramsize);
-#else
-	loadinfo->binp->ramstart = kmm_malloc_at(CONFIG_HEAP_INDEX_LOADED_APP, loadinfo->binp->ramsize);
-#endif
+	loadinfo->binp->ramsize = binfmt_arch_align_mem(loadinfo->binp->ramsize);
+	loadinfo->binp->ramstart = (uint32_t)binfmt_arch_allocate_section(loadinfo->binp->ramsize);
 
 	if (!loadinfo->binp->ramstart) {
 		berr("ERROR: Failed to allocate RAM partition\n");

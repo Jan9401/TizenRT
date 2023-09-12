@@ -147,7 +147,7 @@ CMN_CSRCS += arm_doirq.c arm_gicv2.c arm_gicv2_dump.c
 CMN_CSRCS += arm_initialstate.c arm_mmu.c arm_prefetchabort.c
 CMN_CSRCS += arm_schedulesigaction.c arm_sigdeliver.c
 CMN_CSRCS += arm_syscall.c arm_tcbinfo.c arm_undefinedinsn.c
-CMN_CSRCS += arm_perf.c up_checkspace.c
+CMN_CSRCS += arm_perf.c up_checkspace.c up_restoretask.c
 
 ifeq ($(CONFIG_ARMV7A_L2CC_PL310),y)
   CMN_CSRCS += arm_l2cc_pl310.c
@@ -193,10 +193,6 @@ endif
 
 ARCH_SRCDIR = $(TOPDIR)/arch/$(CONFIG_ARCH)/src/
 
-# Temporary added to fix compile issue
-CFLAGS += -I$(TOPDIR)/board/$(CONFIG_ARCH_BOARD)/src/component/file_system/fatfs
-CFLAGS += -I$(TOPDIR)/board/$(CONFIG_ARCH_BOARD)/src/component/file_system/fatfs/r0.14b/include
-
 CFLAGS += -I$(TOPDIR)/board/$(CONFIG_ARCH_BOARD)/src/component/soc/amebad2/fwlib/include
 CFLAGS += -I$(TOPDIR)/board/$(CONFIG_ARCH_BOARD)/src/component/soc/amebad2/cmsis
 CFLAGS += -I$(TOPDIR)/board/$(CONFIG_ARCH_BOARD)/src/component/soc/amebad2/app/monitor/include
@@ -234,8 +230,8 @@ CHIP_CSRCS += amebasmart_flash.c
 CHIP_CSRCS += amebasmart_gpio_lowerhalf.c
 CHIP_CSRCS += amebasmart_timer_lowerhalf.c
 #CHIP_CSRCS += amebasmart_enet.c
-#CHIP_CSRCS += amebasmart_rtc_lowerhalf.c
-#CHIP_CSRCS += amebasmart_rtc.c
+CHIP_CSRCS += amebasmart_rtc_lowerhalf.c
+CHIP_CSRCS += amebasmart_rtc.c
 CHIP_CSRCS += amebasmart_watchdog_lowerhalf.c
 #CHIP_CSRCS += amebasmart_i2c.c
 #CHIP_CSRCS += amebasmart_i2s.c
